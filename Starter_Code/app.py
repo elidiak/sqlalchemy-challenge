@@ -23,11 +23,11 @@ Base = automap_base()
 Base.prepare(autoload_with=engine)
 
 # reflect the tables
-Measurment = Base.classes.measurement
+Measurement = Base.classes.measurement
 Station = Base.classes.station
 
 # Save references to each table
-Measurment = Base.classes.measurement
+Measurement = Base.classes.measurement
 Station = Base.classes.station
 
 # Create our session (link) from Python to the DB
@@ -55,46 +55,47 @@ def welcome():
 
 @app.route("/api/v1.0/precipitation")
 def precipitation():
-    # Setup our last observed date
-    last_date = session.query(Measurment.date).order_by(Measurment.date.desc()).first()[0]
-    last_date = dt.datetime.strptime(last_date, '%Y-%m-%d')
+    # # Setup our last observed date
+    # last_date = session.query(Measurment.date).order_by(Measurment.date.desc()).first()[0]
+    # last_date = dt.datetime.strptime(last_date, '%Y-%m-%d')
 
-    #Get the start date
-    first_date = last_date - dt.timedelta(days=365)
+    # #Get the start date
+    # first_date = last_date - dt.timedelta(days=365)
 
-    # Perform a query to retrieve the data and precipitation scores
-    query = f"""
-    SELECT date, prcp
-    FROM measurement
-    WHERE date BETWEEN '{first_date}' AND '{last_date}
-    """
+    # # Perform a query to retrieve the data and precipitation scores
+    # query = f"""
+    # SELECT date, prcp
+    # FROM measurement
+    # WHERE date BETWEEN '{first_date}' AND '{last_date}
+    # """
 
-    # Save the query results as a Pandas DataFrame. Explicitly set the column names
-    result = session.execute(text(query))
+    # # Save the query results as a Pandas DataFrame. Explicitly set the column names
+    # result = session.execute(text(query))
     
-    # Fetch all the data
-    data = result.fetchall()
+    # # Fetch all the data
+    # data = result.fetchall()
     
-    # Define the column names
-    columns = ['date', 'prcp']
+    # # Define the column names
+    # columns = ['date', 'prcp']
         
-    # Create the Dataframe
-    climate_df = pd.DataFrame(data, columns=columns)
+    # # Create the Dataframe
+    # climate_df = pd.DataFrame(data, columns=columns)
 
-    # Convert the DataFrame to a JSON object
-    climate_json = climate_df.to_json()
+    # # Convert the DataFrame to a JSON object
+    # climate_json = climate_df.to_json()
 
-    return jsonify(climate_json)
+    # return jsonify(climate_json)
+    
+    prev_year = dt.date(2017, 8, 23) - dt.timedelta(days=365)
+    precipitation = session.query(Measurement.date, Measurement.prcp).\
+        filter(Measurement.date >= prev_year).all()
+    session.close()
+    precip = {date: prcp for date, prcp in precipitation}
+    return jsonify(precip)
+
 
 @app.route('/api/v1.0/stations')
 def stations():
-        # Setup our last observed date
-    last_date = session.query(Measurment.date).order_by(Measurment.date.desc()).first()[0]
-    last_date = dt.datetime.strptime(last_date, '%Y-%m-%d')
-
-    #Get the start date
-    first_date = last_date - dt.timedelta(days=365)
-
     # Perform a query to retrieve the data and precipitation scores
     query = f"""
     SELECT station, name
@@ -121,7 +122,7 @@ def stations():
 @app.route('/api/v1.0/tobs')
 def temperature():
     # Setup our last observed date
-    last_date = session.query(Measurment.date).order_by(Measurment.date.desc()).first()[0]
+    last_date = session.query(Measurement.date).order_by(Measurement.date.desc()).first()[0]
     last_date = dt.datetime.strptime(last_date, '%Y-%m-%d')
 
     # From earlier analysis the most active station is 
