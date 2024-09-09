@@ -1,17 +1,10 @@
 # Import the dependencies.
-from matplotlib import style
-style.use('fivethirtyeight')
-import matplotlib.pyplot as plt
-import matplotlib.dates as mdates
-import numpy as np
+from flask import Flask, jsonify
 import pandas as pd
 import datetime as dt
-# Python SQL toolkit and Object Relational Mapper
-import sqlalchemy
+from sqlalchemy import create_engine, text, func
 from sqlalchemy.ext.automap import automap_base
-from sqlalchemy.orm import Session
-from sqlalchemy import create_engine, func,  inspect, text
-from flask import Flask, jsonify
+from sqlalchemy.orm import sessionmaker
 
 #################################################
 # Database Setup
@@ -31,7 +24,8 @@ Measurement = Base.classes.measurement
 Station = Base.classes.station
 
 # Create our session (link) from Python to the DB
-session = Session(engine)
+Session = sessionmaker(bind=engine)
+session = Session()
 
 #################################################
 # Flask Setup
@@ -49,49 +43,39 @@ def welcome():
         f"/api/v1.0/precipitation<br/>"
         f"/api/v1.0/stations<br/>"
         f"/api/v1.0/tobs<br/>"
-        f"/api/v1.0/<start><br/>"
-        f"/api/v1.0/<start>/<end>"
+        f"/api/v1.0/&lt;start&gt;<br/>"
+        f"/api/v1.0/&lt;start&gt;/&lt;end&gt;"
     )
 
-@app.route("/api/v1.0/precipitation")
+@app.route('/api/v1.0/precipitation')
 def precipitation():
-    # # Setup our last observed date
-    # last_date = session.query(Measurment.date).order_by(Measurment.date.desc()).first()[0]
-    # last_date = dt.datetime.strptime(last_date, '%Y-%m-%d')
-
-    # #Get the start date
-    # first_date = last_date - dt.timedelta(days=365)
-
-    # # Perform a query to retrieve the data and precipitation scores
-    # query = f"""
-    # SELECT date, prcp
-    # FROM measurement
-    # WHERE date BETWEEN '{first_date}' AND '{last_date}
-    # """
-
-    # # Save the query results as a Pandas DataFrame. Explicitly set the column names
-    # result = session.execute(text(query))
-    
-    # # Fetch all the data
-    # data = result.fetchall()
-    
-    # # Define the column names
-    # columns = ['date', 'prcp']
-        
-    # # Create the Dataframe
-    # climate_df = pd.DataFrame(data, columns=columns)
-
-    # # Convert the DataFrame to a JSON object
-    # climate_json = climate_df.to_json()
-
-    # return jsonify(climate_json)
-    
-    prev_year = dt.date(2017, 8, 23) - dt.timedelta(days=365)
-    precipitation = session.query(Measurement.date, Measurement.prcp).\
-        filter(Measurement.date >= prev_year).all()
+    # Calculate the date one year ago from the last date in the dataset
+    last_date = session.query(func.max(Measurement.date)).scalar()
+    first_date = dt.datetime.strptime(last_date, '%Y-%m-%d') - dt.timedelta(days=365)
+    # Perform a query to retrieve the data and precipitation scores
+    query = f"""
+    SELECT station, date, tobs
+    FROM measurement
+    WHERE date BETWEEN '{first_date}' AND '{last_date}'
+    """
+    # Execute the query
+    result = session.execute(text(query))
+    # Fetch all the data
+    data = result.fetchall()
+    # Define the column names
+    columns = ['station', 'date', 'tobs']
+    # Create the Dataframe
+    climate_df = pd.DataFrame(data, columns=columns)
+    # Find the most active station
+    stations = climate_df['station'].value_counts()
+    active_station = stations.idxmax()
+    # Filter the DataFrame for the most active station
+    active_df = climate_df[climate_df['station'] == active_station]
+    # Convert the DataFrame to a JSON object
+    active_json = active_df.to_json(orient='records')
+    # Close the session
     session.close()
-    precip = {date: prcp for date, prcp in precipitation}
-    return jsonify(precip)
+    return jsonify(active_json)
 
 
 @app.route('/api/v1.0/stations')
@@ -120,68 +104,47 @@ def stations():
     return jsonify(station_json)
 
 @app.route('/api/v1.0/tobs')
-def temperature():
-    # Setup our last observed date
-    last_date = session.query(Measurement.date).order_by(Measurement.date.desc()).first()[0]
-    last_date = dt.datetime.strptime(last_date, '%Y-%m-%d')
-
-    # From earlier analysis the most active station is 
-
-    #Get the start date
-    first_date = last_date - dt.timedelta(days=365)
-
-    # Perform a query to retrieve the data and precipitation scores
+def tobs():
+    # Calculate the date one year ago from the last date in the dataset
+    last_date = session.query(func.max(Measurement.date)).scalar()
+    first_date = dt.datetime.strptime(last_date, '%Y-%m-%d') - dt.timedelta(days=365)
+    # Query to retrieve the date and temperature observations (tobs) for the previous year
     query = f"""
-    SELECT station, date, tobs
+    SELECT date, tobs
     FROM measurement
-    WHERE date BETWEEN '{first_date}' AND '{last_date}
+    WHERE date BETWEEN '{first_date}' AND '{last_date}'
     """
-
-    # Save the query results as a Pandas DataFrame. Explicitly set the column names
+    # Execute the query
     result = session.execute(text(query))
-    
     # Fetch all the data
     data = result.fetchall()
-    
     # Define the column names
-    columns = ['station','date', 'prcp']
-        
+    columns = ['date', 'tobs']
     # Create the Dataframe
-    climate_df = pd.DataFrame(data, columns=columns)
-
-    # Design a query to calculate the total number of stations in the dataset
-    stations = climate_df['station'].value_counts()
-
-    # Design a query to find the most active stations (i.e. which stations have the most rows?)
-    # List the stations and their counts in descending order.
-    active_station = stations.sort_values(ascending=False)[0]
-
-    active_df = climate_df[climate_df['station']==active_station]
-
+    tobs_df = pd.DataFrame(data, columns=columns)
     # Convert the DataFrame to a JSON object
-    active_json = active_df.to_json()
-
-    return jsonify(active_json)
+    tobs_json = tobs_df.to_json(orient='records')
+    # Close the session
+    session.close()
+    return jsonify(tobs_json)
 
 @app.route('/api/v1.0/<start>')
 def start_weather(start):
     start_date = start
-    end_date = session.query(Measurment.date).order_by(Measurment.date).first()[0]
-    
+    end_date = session.query(Measurement.date).order_by(Measurement.date.desc()).first()[0]
     # Query to get the max, min, and average tobs per day
     results = session.query(
-        Measurment.date,
-        func.max(Measurment.tobs).label('max_tobs'),
-        func.min(Measurment.tobs).label('min_tobs'),
-        func.avg(Measurment.tobs).label('avg_tobs')
-    ).filter(Measurment.date >= start_date).filter(Measurment.date <= end_date).group_by(Measurment.date).all()
-
+        Measurement.date,
+        func.max(Measurement.tobs).label('max_tobs'),
+        func.min(Measurement.tobs).label('min_tobs'),
+        func.avg(Measurement.tobs).label('avg_tobs')
+    ).filter(Measurement.date >= start_date).filter(Measurement.date <= end_date).group_by(Measurement.date).all()
     # Convert the results to a DataFrame
     tobs_df = pd.DataFrame(results, columns=['date', 'max_tobs', 'min_tobs', 'avg_tobs'])
-
     # Convert the DataFrame to a JSON object
-    tobs_json = tobs_df.to_json()
-
+    tobs_json = tobs_df.to_json(orient='records')
+    # Close the session
+    session.close()
     return jsonify(tobs_json)
 
 @app.route('/api/v1.0/<start>/<end>')
@@ -191,11 +154,11 @@ def start_stop_weather(start,end):
 
     # Query to get the max, min, and average tobs per day
     results = session.query(
-        Measurment.date,
-        func.max(Measurment.tobs).label('max_tobs'),
-        func.min(Measurment.tobs).label('min_tobs'),
-        func.avg(Measurment.tobs).label('avg_tobs')
-    ).filter(Measurment.date >= start_date).filter(Measurment.date <= end_date).group_by(Measurment.date).all()
+        Measurement.date,
+        func.max(Measurement.tobs).label('max_tobs'),
+        func.min(Measurement.tobs).label('min_tobs'),
+        func.avg(Measurement.tobs).label('avg_tobs')
+    ).filter(Measurement.date >= start_date).filter(Measurement.date <= end_date).group_by(Measurement.date).all()
 
     # Convert the results to a DataFrame
     tobs_df = pd.DataFrame(results, columns=['date', 'max_tobs', 'min_tobs', 'avg_tobs'])
@@ -203,6 +166,7 @@ def start_stop_weather(start,end):
     # Convert the DataFrame to a JSON object
     tobs_json = tobs_df.to_json()
 
+    # session.close()
     return jsonify(tobs_json)
 
 if __name__ == '__main__':
